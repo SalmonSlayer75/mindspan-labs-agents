@@ -345,8 +345,8 @@ For each root cause:
 ```bash
 # 1. Check if the data actually exists in staging DB
 # Use the Supabase Management API to query directly
-SUPABASE_TOKEN="sbp_7259b8dbe2f623af58f6c1dda998eabfb6e5a15b"
-STAGING_REF="aduezfpjrevnhllzycbb"
+SUPABASE_TOKEN="$SUPABASE_TOKEN"  # Set via environment variable
+STAGING_REF="your-project-ref"
 
 curl -s "https://api.supabase.com/v1/projects/$STAGING_REF/database/query" \
   -H "Authorization: Bearer $SUPABASE_TOKEN" \
