@@ -1,6 +1,6 @@
 # Agent Skills (Claude Code Slash Commands)
 
-These are reusable Claude Code slash commands (placed in `.claude/commands/`) that give your Telegram bot specialized capabilities. They were developed for production use across multiple projects and are designed to be portable.
+These are reusable Claude Code slash commands (placed in `.claude/commands/`) that give your Telegram bot specialized capabilities. They were developed by Mindspan Labs for production use across multiple projects and are designed to be portable — 38 skills across 5 categories.
 
 ## How to Use
 
@@ -10,18 +10,18 @@ These are reusable Claude Code slash commands (placed in `.claude/commands/`) th
 
 ## Categories
 
-### VPE Workflow (`vpe-workflow/`)
+### VPE Workflow (`vpe-workflow/`) — 4 skills
 
 Core engineering management workflow — plan, implement, review, ship.
 
 | Skill | What it does |
 |-------|-------------|
-| `/review-plan` | Reviews an implementation plan before coding starts. Checks for gaps in root cause analysis, scope, security implications, test plan, and rollback strategy. |
-| `/review-pr` | Full PR review with security audit, architecture check, test coverage analysis, and code quality scan. Posts findings with severity ratings (P0 blocker, P1 must-fix, P2 should-fix). |
-| `/review-bugfix` | Bug fix review with higher scrutiny — verifies root cause is real, checks for regression potential, and assesses whether the fix prevents recurrence. |
-| `/engineering-status` | Generates a current engineering status report: open issues, PR status, CI health, recent commits, velocity metrics. |
+| `/review-plan` | Reviews an implementation plan before coding starts. Checks for gaps in root cause analysis, scope, security, test plan, and rollback strategy. |
+| `/review-pr` | Full PR review with security audit, architecture check, test coverage analysis, and code quality scan. Posts findings with severity ratings (P0/P1/P2). |
+| `/review-bugfix` | Bug fix review with higher scrutiny — verifies root cause, checks regression potential, assesses prevention. |
+| `/engineering-status` | Current engineering status: open issues, PR status, CI health, recent commits, velocity metrics. |
 
-### Auditors (`auditors/`)
+### Auditors (`auditors/`) — 8 skills
 
 Specialized code review lenses — each focuses on one domain.
 
@@ -36,9 +36,9 @@ Specialized code review lenses — each focuses on one domain.
 | `/a11y-auditor` | WCAG 2.1 AA, keyboard navigation, ARIA, contrast ratios, touch targets |
 | `/cost-guardian` | LLM cost tracking, spending analysis, model routing optimization |
 
-### Development (`development/`)
+### Development (`development/`) — 12 skills
 
-Higher-level engineering skills.
+Higher-level engineering skills for building, fixing, and analyzing code.
 
 | Skill | What it does |
 |-------|-------------|
@@ -48,6 +48,51 @@ Higher-level engineering skills.
 | `/full-audit` | Comprehensive codebase health check across all dimensions |
 | `/sprint-planner` | Priority analysis, dependency mapping, sprint decomposition |
 | `/test-writer` | Unit, integration, E2E test generation following project standards |
+| `/code-architect` | Architecture-level code design — module boundaries, dependency graphs, interface contracts |
+| `/code-simplifier` | Identifies over-engineered code and simplifies without losing functionality |
+| `/deep-fix` | Systematic root-cause-driven bug resolution — traces the full causal chain |
+| `/fix-issue` | Issue triage and implementation — from GitHub issue to working PR |
+| `/new-component` | Scaffolds a React component with types, tests, and accessibility |
+| `/new-endpoint` | Scaffolds an API route with auth, validation, error handling, and tests |
+
+### Quality (`quality/`) — 6 skills
+
+Testing, review, and diagnostic tools.
+
+| Skill | What it does |
+|-------|-------------|
+| `/peer-review` | External-style code review — pretend you're seeing this codebase for the first time |
+| `/playbook-auditor` | Audits runbooks and operational playbooks for gaps, stale info, and missing scenarios |
+| `/root-cause-triage` | Rapid triage for production issues — classify, identify root cause, recommend action |
+| `/run-e2e` | E2E test execution with environment setup and failure analysis |
+| `/test-session` | Interactive test session — explores the app like a QA tester looking for bugs |
+| `/issue-intelligence` | Analyzes GitHub issues for patterns, duplicates, and priority recommendations |
+
+### UX & Design (`ux-design/`) — 5 skills
+
+User experience, design systems, and content strategy.
+
+| Skill | What it does |
+|-------|-------------|
+| `/designer` | UI/UX design review — layout, hierarchy, spacing, color, typography, interaction patterns |
+| `/heuristic-eval` | Nielsen's 10 usability heuristics evaluation of any interface |
+| `/ux-ia-auditor` | Information architecture audit — navigation, labeling, findability, mental models |
+| `/ux-writer` | UX writing review — microcopy, error messages, onboarding text, CTAs, tone consistency |
+| `/error-ux-auditor` | Error state UX audit — are errors helpful, recoverable, and human-readable? |
+
+### Additional specialized skills (from Mindspan Labs, not included here)
+
+Some skills are too project-specific to be portable but worth knowing about:
+
+| Skill | What it does | Why not included |
+|-------|-------------|-----------------|
+| `/sprint-pm` | Full sprint PM orchestration with multi-agent coordination | Requires specific agent infrastructure |
+| `/swarm-fix` | Parallel multi-agent bug fixing across worktrees | Requires swarm orchestration setup |
+| `/swarm-watchdog` | Monitors swarm agents for hangs, failures, conflicts | Requires swarm infrastructure |
+| `/new-onboarding-phase` | Scaffolds a new onboarding phase with all screens | Project-specific domain model |
+| `/data-crawler` | Web scraping and data pipeline builder | General but requires project-specific targets |
+| `/metrics-planner` | Defines metrics, KPIs, and instrumentation plans | General but heavily customized |
+| `/prompt-optimizer` | Optimizes LLM prompts for cost, quality, and latency | General but tied to specific LLM patterns |
 
 ## Design Principles
 

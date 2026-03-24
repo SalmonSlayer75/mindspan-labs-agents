@@ -1,6 +1,6 @@
 # Claude Code Telegram Agent — Production Config
 
-Battle-tested configuration for running Claude Code as a 24/7 Telegram agent with persistent memory, automatic recovery, scheduled tasks, and reusable agent skills.
+Battle-tested configuration for running Claude Code as a 24/7 Telegram agent with persistent memory, automatic recovery, scheduled tasks, and 38 reusable agent skills.
 
 ## What This Is
 
@@ -96,14 +96,14 @@ examples/
   management/                  # Bot lifecycle management
     claude-bot                 # start/stop/restart/status/logs for all bots
 
-  agent-skills/                # Reusable Claude Code slash commands
+  agent-skills/                # 38 reusable Claude Code slash commands (by Mindspan Labs)
     README.md                  # Full catalog with descriptions
-    vpe-workflow/              # Plan → Review → Ship workflow
+    vpe-workflow/              # Plan → Review → Ship workflow (4 skills)
       review-plan.md
       review-pr.md
       review-bugfix.md
       engineering-status.md
-    auditors/                  # Specialized code review lenses
+    auditors/                  # Specialized code review lenses (8 skills)
       security-reviewer.md
       api-auditor.md
       frontend-auditor.md
@@ -112,13 +112,32 @@ examples/
       performance-auditor.md
       a11y-auditor.md
       cost-guardian.md
-    development/               # Higher-level engineering skills
+    development/               # Building, fixing, and analyzing code (12 skills)
       architect.md
       bug-analyzer.md
+      code-architect.md
+      code-simplifier.md
+      deep-fix.md
       deep-reviewer.md
+      fix-issue.md
       full-audit.md
+      new-component.md
+      new-endpoint.md
       sprint-planner.md
       test-writer.md
+    quality/                   # Testing, review, and diagnostics (6 skills)
+      peer-review.md
+      playbook-auditor.md
+      root-cause-triage.md
+      run-e2e.md
+      test-session.md
+      issue-intelligence.md
+    ux-design/                 # UX, design systems, and content (5 skills)
+      designer.md
+      heuristic-eval.md
+      ux-ia-auditor.md
+      ux-writer.md
+      error-ux-auditor.md
 ```
 
 ---
@@ -191,7 +210,7 @@ For reference, here's what we actually run:
 | Bot | Role | Cron Jobs | Skills |
 |-----|------|-----------|--------|
 | **COS** (Chief of Staff) | Email, calendar, Notion, research, admin | Morning brief (7am), email check (every 15min), weekly research (Mon 6am), weekly use cases (Tue 6am), EOD summary (6pm), weekly review (Fri 4pm) | Google Workspace, Notion, LinkedIn API, WebSearch |
-| **VPE** (VP Engineering) | Code review, PRs, architecture, CI, security | Daily status (8am), PR watcher (every 30min), weekly report (Fri 3pm) | 18 agent skills (auditors, reviewers, planners) |
+| **VPE** (VP Engineering) | Code review, PRs, architecture, CI, security | Daily status (8am), PR watcher (every 30min), weekly report (Fri 3pm) | 38 agent skills (auditors, reviewers, planners, UX, quality) |
 
 Both bots:
 - Run in isolated tmux sessions with separate sockets
