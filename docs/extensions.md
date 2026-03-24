@@ -199,7 +199,7 @@ The VPE bot needs to see multiple codebases. Its start script uses `--add-dir` t
 ```bash
 cd ~/Projects
 exec claude --channels plugin:telegram@claude-plugins-official \
-  --add-dir ~/AnnasPath \
+  --add-dir ~/my-other-project \
   --add-dir "~/other-project"
 ```
 
@@ -211,7 +211,7 @@ COS also uses `--add-dir` for cross-referencing project status when briefing the
 cd ~/ChiefOfStaff
 exec claude --channels plugin:telegram@claude-plugins-official \
   --add-dir ~/Projects \
-  --add-dir ~/AnnasPath
+  --add-dir ~/my-other-project
 ```
 
 **Rule of thumb**: The working directory is where the bot's identity lives (CLAUDE.md, state file, settings). `--add-dir` is for everything else it needs to read or write.
