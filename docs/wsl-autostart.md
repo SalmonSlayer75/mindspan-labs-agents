@@ -14,40 +14,50 @@ Follow the base guide's Step 8 to create systemd user services. This works in WS
 loginctl enable-linger $USER
 ```
 
-Even more important in WSL than on native Linux — WSL sessions are more transient.
+Even more important in WSL than on native Linux -- WSL sessions are more transient.
 
-### 3. Windows Scheduled Task
+### 3. Boot script
 
-Create a Windows Scheduled Task that runs on login to ensure WSL starts:
+Create a boot script that verifies services are running after WSL starts. See [examples/wsl-autostart/wsl-boot.sh](../examples/wsl-autostart/wsl-boot.sh).
+
+The boot script:
+- Optionally starts any local model servers you run alongside your bots
+- Waits a moment for systemd to bring up services
+- Checks each bot service and starts any that didn't come up automatically
+- Logs everything to `~/.claude/channels/wsl-boot.log`
+
+### 4. Trigger the boot script from Windows
+
+You have two options:
+
+#### Option A: Windows Startup folder (simplest)
+
+Copy [examples/wsl-autostart/wsl-claude-bots.bat](../examples/wsl-autostart/wsl-claude-bots.bat) into your Windows Startup folder:
+
+```
+%AppData%\Microsoft\Windows\Start Menu\Programs\Startup\
+```
+
+The `start /min` flag launches WSL minimized so it doesn't pop up a terminal window on login. This runs every time you log in to Windows.
+
+#### Option B: Windows Scheduled Task (more control)
 
 1. Open **Task Scheduler** on Windows
 2. Create a new task:
-   - **Trigger**: At log on
+   - **Trigger**: At log on (or At startup if you want it even before login)
    - **Action**: Start a program
-   - **Program**: `wsl`
-   - **Arguments**: `-d Ubuntu -u yourusername -- systemctl --user start claude-work-bot.service`
-3. Repeat for each bot service
+   - **Program**: `wsl.exe`
+   - **Arguments**: `-d Ubuntu -e /home/yourusername/bin/wsl-boot.sh`
+3. Under **Conditions**, uncheck "Start only if on AC power" (important for laptops)
+4. Under **Settings**, check "Run task as soon as possible after a scheduled start is missed"
 
-Alternatively, create a simple batch script:
+The Scheduled Task approach gives you more control (run at startup vs login, run whether or not user is logged on, etc.) but is more setup. The Startup folder approach is simpler and works well for most cases.
 
-```bat
-@echo off
-wsl -d Ubuntu -u yourusername -- systemctl --user start claude-work-bot.service
-wsl -d Ubuntu -u yourusername -- systemctl --user start claude-personal-bot.service
-```
-
-Save as `start-claude-bots.bat` and add it to Task Scheduler or your Windows Startup folder.
-
-### 4. Keep WSL alive
+### 5. Keep WSL alive
 
 By default, WSL may shut down after all terminals are closed. To prevent this:
 
-```powershell
-# In Windows Terminal or PowerShell:
-wsl --update
-```
-
-Then create or edit `%UserProfile%\.wslconfig`:
+Create or edit `%UserProfile%\.wslconfig`:
 
 ```ini
 [wsl2]
@@ -58,10 +68,11 @@ This prevents WSL from auto-shutting down when idle.
 
 ## Troubleshooting
 
-- **Bots not starting after Windows reboot**: Check that the WSL Scheduled Task ran (`Task Scheduler > History`)
+- **Bots not starting after Windows reboot**: Check `~/.claude/channels/wsl-boot.log` for errors. Also check Task Scheduler History if using that approach.
 - **systemd not available in WSL**: Make sure you have a recent WSL2 version with systemd enabled in `/etc/wsl.conf`:
   ```ini
   [boot]
   systemd=true
   ```
 - **WSL shutting down unexpectedly**: Check `.wslconfig` for `vmIdleTimeout` setting
+- **Boot script not found**: Make sure the path in the `.bat` file matches where you put `wsl-boot.sh`, and that it's executable (`chmod +x`)

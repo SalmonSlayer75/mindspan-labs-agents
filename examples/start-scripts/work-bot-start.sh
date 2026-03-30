@@ -11,7 +11,14 @@ export HOME="/home/yourusername"    # <-- CHANGE THIS
 export TELEGRAM_STATE_DIR="$HOME/.claude/channels/telegram-work"
 
 # Working directory = bot's identity (CLAUDE.md, state file, settings)
-cd ~/src/my-work-project            # <-- CHANGE THIS
+cd ~/AgentWorkspace                 # <-- CHANGE THIS
+
+# Kill any zombie Telegram pollers left from a previous session.
+# This prevents "409 Conflict" errors where two pollers fight over messages.
+# Use the first few digits of your bot token as a unique identifier.
+BOT_TOKEN_PREFIX="1234567890"       # <-- First digits of your bot token
+pkill -f "telegram.*${BOT_TOKEN_PREFIX}" 2>/dev/null || true
+sleep 1
 
 # --add-dir grants access to additional directories without changing working dir
 # Add as many as needed for your use case

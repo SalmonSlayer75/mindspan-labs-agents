@@ -15,6 +15,9 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
 export HOME="/home/yourusername"    # <-- CHANGE THIS
 
+# Source credentials from env file (keeps tokens out of scripts)
+source "$HOME/.claude/bot-credentials.env"
+
 LOG="$HOME/.claude/channels/watchdog.log"
 
 # --- CONFIGURE YOUR BOTS HERE ---
@@ -23,14 +26,14 @@ declare -A BOT_SOCKET BOT_SESSION BOT_SCRIPT BOT_TOKEN
 BOT_SOCKET[work]="claude-work"
 BOT_SESSION[work]="claude-work-bot"
 BOT_SCRIPT[work]="$HOME/bin/claude-work-bot-start.sh"
-BOT_TOKEN[work]="<your-work-bot-token>"    # <-- CHANGE THIS
+BOT_TOKEN[work]="$BOT_TOKEN_1"
 
 BOT_SOCKET[personal]="claude-personal"
 BOT_SESSION[personal]="claude-personal-bot"
 BOT_SCRIPT[personal]="$HOME/bin/claude-personal-bot-start.sh"
-BOT_TOKEN[personal]="<your-personal-bot-token>"    # <-- CHANGE THIS
+BOT_TOKEN[personal]="$BOT_TOKEN_2"
 
-CHAT_ID="<your-telegram-user-id>"    # <-- CHANGE THIS
+CHAT_ID="$TELEGRAM_CHAT_ID"
 # --- END CONFIGURATION ---
 
 log() {
@@ -88,6 +91,44 @@ check_and_restart() {
     # This covers the case where it's mid-reply and neither "Listening" nor "Baked" appears
 }
 
+# --- OPTIONAL: Local model health check with backoff ---
+# If you run a local model (Qwen, llama.cpp, etc.) alongside your bots,
+# uncomment this section to auto-restart it when it goes down.
+#
+# LOCAL_MODEL_FAIL_FILE="/tmp/local-model-restart-failures"
+# check_local_model() {
+#     if curl -s http://localhost:8001/health > /dev/null 2>&1; then
+#         # Healthy — reset failure counter
+#         rm -f "$LOCAL_MODEL_FAIL_FILE"
+#         return
+#     fi
+#
+#     # Check backoff — skip if too many recent failures
+#     local failures=0
+#     if [ -f "$LOCAL_MODEL_FAIL_FILE" ]; then
+#         failures=$(cat "$LOCAL_MODEL_FAIL_FILE")
+#         # Back off: after 3 consecutive failures, only retry every 30 min (6 cycles)
+#         if [ "$failures" -ge 3 ]; then
+#             local skip=$(( failures % 6 ))
+#             if [ "$skip" -ne 0 ]; then
+#                 return
+#             fi
+#             log "[local-model] retry after $failures consecutive failures"
+#         fi
+#     fi
+#
+#     log "[local-model] server not running — auto-starting"
+#     "$HOME/bin/start-local-model.sh" >> "$LOG" 2>&1
+#     if curl -s http://localhost:8001/health > /dev/null 2>&1; then
+#         log "[local-model] server restarted successfully"
+#         rm -f "$LOCAL_MODEL_FAIL_FILE"
+#     else
+#         failures=$((failures + 1))
+#         echo "$failures" > "$LOCAL_MODEL_FAIL_FILE"
+#         log "[local-model] ERROR: server failed to start (failure #$failures)"
+#     fi
+# }
+
 # --- CONFIGURE YOUR BOT NAMES HERE ---
 resolve_targets() {
     local target="${1:-all}"
@@ -102,3 +143,5 @@ TARGET="${1:-all}"
 for bot in $(resolve_targets "$TARGET"); do
     check_and_restart "$bot"
 done
+# Uncomment if using local model health check:
+# check_local_model

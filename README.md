@@ -19,7 +19,11 @@ We run two Claude Code bots on a single machine via Telegram — a **Chief of St
 | 3 | **Bot can't access files outside working directory** | `--add-dir` flags in start scripts | [Start Scripts](examples/start-scripts/) |
 | 4 | **Multiple bots producing conflicting information** | Explicit role boundaries and redirect rules in CLAUDE.md | [Role Isolation](docs/role-isolation.md) |
 | 5 | **Bot reports "RUNNING" but is actually dead** — tmux session exists but Claude is idle at the prompt | Watchdog cron that inspects the tmux pane and auto-restarts baked bots | [Watchdog](examples/watchdog/) |
-| 6 | **WSL doesn't auto-start bots on Windows reboot** | Windows Scheduled Task + systemd + lingering | [WSL Auto-Start](docs/wsl-autostart.md) |
+| 6 | **WSL doesn't auto-start bots on Windows reboot** | Windows Startup batch file + boot script + systemd | [WSL Auto-Start](docs/wsl-autostart.md) |
+| 7 | **Bot can't search its own history** — weeks of context across scattered files | SQLite FTS5 search index across all memory files | [Memory Search](examples/memory-search/) |
+| 8 | **Bot doesn't learn about you over time** — re-explain preferences every session | Structured user profile + PostToolUse learning loop | [Personalization](docs/personalization.md) |
+| 9 | **Context compaction loses important state** | PreCompact emergency save + PostCompact reload | [Compaction Hooks](docs/extensions.md#problem-9-context-compaction-loses-important-state) |
+| 10 | **Credentials scattered across scripts** | Centralized env file sourced by all scripts | [Credentials](examples/credentials/) |
 
 ---
 
@@ -36,11 +40,13 @@ We run two Claude Code bots on a single machine via Telegram — a **Chief of St
 - Add to crontab: `*/5 * * * * ~/bin/claude-bot-watchdog.sh all >> ~/.claude/channels/watchdog.log 2>&1`
 - Your bot will now auto-recover within 5 minutes of hitting context limits
 
-**Priority 2 — Persistent Memory** (10 min, OpenClaw-style state):
+**Priority 2 — Persistent Memory** (10 min):
 - Copy a [state file template](examples/state-files/) into your project directory
+- Copy the [user profile template](examples/personalization/user-profile-template.md) and fill in your basics
 - Add the [CLAUDE.md instructions](docs/state-file-and-hooks.md#layer-2-aggressive-claudemd-instructions) to your bot's CLAUDE.md
-- Add the [hooks config](examples/hooks/settings.local.json) to your project's `.claude/settings.local.json`
-- Your bot will now remember action items, decisions, and context across restarts
+- Add the [hooks config](examples/hooks/settings.local.json) to your project's `.claude/settings.local.json` (includes all 4 hooks: PreToolUse, PostToolUse, PreCompact, PostCompact)
+- Set up [credentials](examples/credentials/bot-credentials.env.example) in `~/.claude/bot-credentials.env`
+- Your bot will now remember action items, decisions, context, and learn your preferences over time
 
 **Priority 3 — Scheduled Tasks** (15 min per task):
 - Copy the [cron script template](examples/cron-scripts/scheduled-task-template.sh)
@@ -48,7 +54,12 @@ We run two Claude Code bots on a single machine via Telegram — a **Chief of St
 - Add to crontab
 - Your bot will now do things proactively without being asked
 
-**Priority 4 — Agent Skills** (drop-in):
+**Priority 4 — Memory Search** (15 min, long-term recall):
+- Copy the [memory search scripts](examples/memory-search/) to `~/bin/` and `chmod +x` them
+- Edit the `AGENT_SOURCES` / `AGENT_DIRS` dicts to match your directory layout
+- The hooks config already calls `memory-search --index` at session start — the bot can now search its own history
+
+**Priority 5 — Agent Skills** (drop-in):
 - Browse [examples/agent-skills/](examples/agent-skills/) for reusable slash commands
 - Copy any `.md` file into your project's `.claude/commands/` directory
 - The bot can now run specialized audits, reviews, and analysis on demand
@@ -71,34 +82,53 @@ We run two Claude Code bots on a single machine via Telegram — a **Chief of St
 docs/
   base-setup-guide.md         # Step-by-step: from zero to working Telegram bot
   extensions.md                # Full writeup of all production additions
+  personalization.md           # User profile learning loop pattern
   state-file-and-hooks.md      # Deep dive: persistent memory across restarts
   cron-jobs.md                 # Deep dive: scheduled one-shot tasks
   role-isolation.md            # Deep dive: multi-bot coordination
   wsl-autostart.md             # WSL-specific auto-start on Windows boot
 
 examples/
-  start-scripts/               # Bot start scripts with --add-dir for multi-directory access
+  start-scripts/               # Bot start scripts with --add-dir and zombie cleanup
     work-bot-start.sh
 
   watchdog/                    # Auto-restart bots that hit context limits
-    claude-bot-watchdog.sh
+    claude-bot-watchdog.sh     # With local-model backoff logic
 
   cron-scripts/                # Templates for scheduled tasks
-    scheduled-task-template.sh
+    scheduled-task-template.sh # With flock, stderr capture, --max-turns
 
-  hooks/                       # Claude Code hooks for state persistence
-    settings.local.json
+  hooks/                       # Claude Code hooks — full 4-hook lifecycle
+    settings.local.json        # PreToolUse, PostToolUse, PreCompact, PostCompact
 
   state-files/                 # Structured state file templates
     bot-state.md               # General-purpose bot
     engineering-bot-state.md   # Engineering-focused bot
 
+  memory-search/               # SQLite FTS5 search across all bot memory
+    memory-search              # Search/index tool (Python)
+    memory-log-conversation    # Log exchanges to conversation log + daily note
+    memory-daily-init          # Initialize today's daily note
+
+  personalization/             # User profile learning loop
+    user-profile-template.md   # Template for structured user profile
+
+  credentials/                 # Centralized secret management
+    bot-credentials.env.example
+
+  wsl-autostart/               # Auto-start bots on Windows boot
+    wsl-boot.sh                # Linux-side boot script
+    wsl-claude-bots.bat        # Windows Startup folder batch file
+
+  logrotate/                   # Log rotation config
+    logrotate.conf
+
   management/                  # Bot lifecycle management
     claude-bot                 # start/stop/restart/status/logs for all bots
 
-  agent-skills/                # 38 reusable Claude Code slash commands (by Mindspan Labs)
+  agent-skills/                # 38 reusable Claude Code slash commands
     README.md                  # Full catalog with descriptions
-    vpe-workflow/              # Plan → Review → Ship workflow (4 skills)
+    vpe-workflow/              # Plan -> Review -> Ship workflow (4 skills)
       review-plan.md
       review-pr.md
       review-bugfix.md
@@ -192,6 +222,15 @@ examples/
 ### State File = Working Memory
 The bot writes a structured markdown file after every interaction. On restart, it reads this file first. This is how it "remembers" across sessions. Hooks enforce the discipline — the bot gets a system-level nudge after every Telegram reply.
 
+### 4-Hook Lifecycle = Nothing Falls Through the Cracks
+Four hooks cover the full session lifecycle: **PreToolUse** loads state on first reply, **PostToolUse** nudges the bot to save after every reply, **PreCompact** is a last-chance emergency save before context compaction, **PostCompact** reindexes and reloads after compaction.
+
+### User Profile = Long-Term Learning
+A structured markdown file where the bot records what it learns about you — preferences, relationships, scheduling habits, communication style. Updated incrementally via PostToolUse hooks. Compounds over weeks into genuine personalization.
+
+### Memory Search = Searchable History
+SQLite FTS5 index across all bot files — state, profiles, daily notes, conversation logs, Claude Code memory files. The bot can search its own history when it needs to recall past decisions or context.
+
 ### Watchdog = Self-Healing
 When Claude hits its context limit, the conversation "bakes" and the bot goes idle. The tmux session is still running, so `status` says RUNNING, but the bot is deaf. The watchdog inspects what's actually on the tmux screen every 5 minutes and restarts baked bots automatically.
 
@@ -224,7 +263,7 @@ Both bots:
 ## Credits
 
 - Base setup guide by [Peter Steinberger](https://github.com/steipete)
-- Extensions and agent skills by Jeremy @ [Mindspan Labs](https://mindspanlabs.ai) and Claude K.
+- Extensions and agent skills by the community contributors and Claude
 
 ## License
 

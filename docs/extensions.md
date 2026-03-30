@@ -22,7 +22,7 @@ Added instructions to CLAUDE.md telling the bot to save context to a `conversati
 
 Each bot gets a structured state file that serves as persistent working memory across session restarts. This replaces freeform conversation logs.
 
-**COS example** (`~/ChiefOfStaff/cos-state.md`):
+**COS example** (`~/AgentWorkspace/bot-state.md`):
 ```markdown
 # COS State
 <!-- Auto-updated by COS after every substantive interaction. Read this at conversation start. -->
@@ -44,7 +44,7 @@ Each bot gets a structured state file that serves as persistent working memory a
 <!-- Important context from recent conversations that would be lost on restart -->
 ```
 
-**VPE example** (`~/Projects/vpe-state.md`) — same structure but with engineering-specific sections:
+**VPE example** (`~/Projects/bot-state.md`) — same structure but with engineering-specific sections:
 ```markdown
 ## Pending Reviews
 <!-- PRs or plans awaiting VPE review -->
@@ -63,7 +63,7 @@ The original approach said "save context at the end of each interaction." We cha
 - **CRITICAL — Maintain state across restarts:** Your conversation WILL end unexpectedly
   (context limit, crash, restart). You WILL lose everything in your conversation history.
   The ONLY thing that survives is what you write to disk. To compensate:
-  - **Read `~/ChiefOfStaff/cos-state.md` at the START of every conversation**
+  - **Read `~/AgentWorkspace/bot-state.md` at the START of every conversation**
   - **Update it IMMEDIATELY after every substantive interaction** — do NOT wait until
     session end, because session end may never come
   - After every Telegram exchange where something was decided, requested, or committed to:
@@ -91,7 +91,7 @@ In each project's `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "if [ ! -f /tmp/cos-state-loaded ]; then echo '[STARTUP] Read ~/ChiefOfStaff/cos-state.md FIRST to restore your working memory before replying.'; touch /tmp/cos-state-loaded; fi"
+            "command": "if [ ! -f /tmp/bot-state-loaded ]; then echo '[STARTUP] Read ~/AgentWorkspace/bot-state.md FIRST to restore your working memory before replying.'; touch /tmp/bot-state-loaded; fi"
           }
         ]
       }
@@ -102,7 +102,7 @@ In each project's `.claude/settings.local.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[STATE REMINDER] You just sent a Telegram reply. If this interaction involved any decisions, action items, commitments, or important context — update ~/ChiefOfStaff/cos-state.md NOW before doing anything else.'"
+            "command": "echo '[STATE REMINDER] You just sent a Telegram reply. If this interaction involved any decisions, action items, commitments, or important context — update ~/AgentWorkspace/bot-state.md NOW before doing anything else.'"
           }
         ]
       }
@@ -115,7 +115,7 @@ In each project's `.claude/settings.local.json`:
 - **PreToolUse** fires before the bot sends a Telegram reply. On the first reply of a new session (detected via `/tmp/` flag file), it tells the bot to read its state file first. This catches the "new session, blank slate" moment.
 - **PostToolUse** fires after every Telegram reply. It reminds the bot to update state. Every. Single. Time. This is the key insight borrowed from OpenClaw's approach — don't rely on the bot to remember, remind it mechanically.
 
-The `/tmp/cos-state-loaded` flag file resets on reboot (since `/tmp` is cleared), so the startup reminder fires again after each restart.
+The `/tmp/bot-state-loaded` flag file resets on reboot (since `/tmp` is cleared), so the startup reminder fires again after each restart.
 
 ---
 
@@ -132,7 +132,7 @@ Each scheduled task is a bash script that:
 2. Sends results to Telegram via the Bot API directly (curl, not through the channel)
 3. Logs output to a dedicated log file
 
-**Example** (`~/bin/cos-check-email.sh`):
+**Example** (`~/bin/scheduled-email-check.sh`):
 ```bash
 #!/usr/bin/env bash
 export PATH="..."
@@ -154,7 +154,7 @@ send_telegram() {
 }
 
 # Run Claude one-shot with the task prompt
-RESULT=$(cd ~/ChiefOfStaff && claude -p \
+RESULT=$(cd ~/AgentWorkspace && claude -p \
   --mcp-config .mcp.json \
   --permission-mode dontAsk \
   "Check email and calendar. Summarize anything new." 2>&1)
@@ -168,16 +168,16 @@ fi
 **Crontab** (`crontab -e`):
 ```cron
 # COS Morning Brief — daily 7am
-0 7 * * * ~/bin/cos-morning-brief.sh >> ~/.claude/channels/cos-morning.log 2>&1
+0 7 * * * ~/bin/morning-brief.sh >> ~/.claude/channels/morning-brief.log 2>&1
 
 # COS Email Check — every 15 min, 7am-10pm
-*/15 7-22 * * * ~/bin/cos-check-email.sh >> ~/.claude/channels/cos-check.log 2>&1
+*/15 7-22 * * * ~/bin/scheduled-email-check.sh >> ~/.claude/channels/email-check.log 2>&1
 
 # VPE Daily Status — daily 8am
-0 8 * * * ~/bin/vpe-daily-status.sh >> ~/.claude/channels/vpe-daily.log 2>&1
+0 8 * * * ~/bin/daily-status.sh >> ~/.claude/channels/daily-status.log 2>&1
 
 # VPE PR Watcher — every 30 min, 8am-10pm
-*/30 8-22 * * * ~/bin/vpe-pr-watch.sh >> ~/.claude/channels/vpe-pr-watch.log 2>&1
+*/30 8-22 * * * ~/bin/pr-watch.sh >> ~/.claude/channels/pr-watch.log 2>&1
 ```
 
 **Important**: Cron scripts use `claude -p` (one-shot), NOT the channel bot. They're completely independent processes. The channel bot stays running for interactive messages; cron scripts fire and exit. They share the same bot token for sending Telegram messages, but they don't interfere with each other.
@@ -208,7 +208,7 @@ This lets VPE review code across both projects from a single bot. The working di
 COS also uses `--add-dir` for cross-referencing project status when briefing the human:
 
 ```bash
-cd ~/ChiefOfStaff
+cd ~/AgentWorkspace
 exec claude --channels plugin:telegram@claude-plugins-official \
   --add-dir ~/Projects \
   --add-dir ~/my-other-project
@@ -344,40 +344,167 @@ WSL2 on Windows. systemd works but WSL doesn't "boot" in the traditional sense �
 
 ---
 
+## Problem #7: Bot Can't Search Its Own History
+
+### What happens
+
+After a few weeks of operation, the bot has accumulated daily notes, conversation logs, memory files, and state files across multiple directories. When you ask "what did we discuss about the quarterly review last week?", the bot can't efficiently search across all of these.
+
+### What we do: SQLite FTS5 search index
+
+We built a small Python tool (`~/bin/memory-search`) that:
+1. Indexes all of a bot's memory files into a SQLite FTS5 database with BM25 ranking
+2. Chunks documents intelligently (by markdown sections, conversation entries, or daily notes)
+3. Returns ranked results with snippets, filterable by date
+
+```bash
+# Search for past context
+memory-search work "quarterly review" --limit 5
+memory-search work "client feedback" --since 2026-03-01
+
+# Rebuild the index
+memory-search work --index
+
+# Check what's indexed
+memory-search work --status
+```
+
+The tool indexes: state files, user profiles, Claude Code memory files (`~/.claude/projects/.../memory/*.md`), daily notes, reference docs, and conversation transcripts.
+
+**Hook integration**: The PreToolUse hook calls `memory-search <agent> --index` on first reply of a new session (to pick up any files changed while the bot was down). PostCompact also reindexes (to capture anything written during the session). The bot can then search past context with `memory-search <agent> "query"` whenever it needs historical information.
+
+See [examples/memory-search/](../examples/memory-search/) for the full implementation.
+
+---
+
+## Problem #8: Bot Doesn't Learn About You Over Time
+
+### What happens
+
+Every session starts fresh. The bot doesn't remember that you prefer 15-minute buffers between meetings, that you hate sloppy email formatting, or who your key contacts are. You end up re-explaining preferences that should be obvious after weeks of interaction.
+
+### What we do: Structured user profile + learning loop
+
+We give the bot a structured profile file (`~/AgentWorkspace/user-profile.md`) that it updates incrementally as it learns things about you. The PostToolUse hook prompts the bot after every Telegram reply: "If you learned anything new about the user, update the profile." The PreCompact hook gives it one last chance to save observations before context is lost.
+
+Over time, the profile fills in organically:
+- Communication preferences (brief vs detailed, tone, formatting)
+- Scheduling constraints (blackout hours, buffer times, preferred locations)
+- Relationships (contacts encountered in emails, meetings, conversations)
+- Recurring patterns (messaging habits, travel patterns, work rhythms)
+
+See [docs/personalization.md](personalization.md) for the full pattern and [examples/personalization/](../examples/personalization/) for the template.
+
+---
+
+## Problem #9: Context Compaction Loses Important State
+
+### What happens
+
+Claude Code compacts the context window when it gets too large. This is good for keeping the session alive longer, but it can lose important observations the bot hasn't written to disk yet.
+
+### What we do: PreCompact and PostCompact hooks
+
+Two additional hooks in `settings.local.json` handle the compaction lifecycle:
+
+- **PreCompact** fires before compaction. It urgently tells the bot: "This is your LAST CHANCE to persist context. Save state, update the user profile, write daily notes NOW."
+- **PostCompact** fires after compaction. It reindexes the memory search database and tells the bot to re-read its state files, since it may have lost context about what's in them.
+
+Together with PreToolUse and PostToolUse, this creates a 4-hook lifecycle:
+
+| Hook | When | What it does |
+|------|------|-------------|
+| PreToolUse | Before first Telegram reply | Load state, profile, daily notes; initialize daily note; rebuild search index |
+| PostToolUse | After every Telegram reply | Nudge to save state and update user profile |
+| PreCompact | Before context compaction | Emergency save of all unsaved state |
+| PostCompact | After context compaction | Reindex search; reload state files |
+
+See [examples/hooks/settings.local.json](../examples/hooks/settings.local.json) for the full config.
+
+---
+
+## Problem #10: Daily Context Drift
+
+### What happens
+
+Over a long session, the bot accumulates context about the day's conversations, decisions, and action items. But this context only lives in the conversation window. If the session bakes or compacts, the day's narrative is fragmented across state file snapshots.
+
+### What we do: Daily notes
+
+Each bot maintains a `daily/YYYY-MM-DD.md` file that serves as a running log for the day. The `memory-daily-init` script (called from PreToolUse at session start) creates the day's file with standard sections: Conversations, Decisions Made, Action Items, Notes. Old daily notes are auto-pruned after 14 days.
+
+The bot appends to the daily note throughout the day. On restart or compaction, it re-reads the daily note to pick up where it left off. The memory search tool indexes daily notes so they're searchable later.
+
+See [examples/memory-search/memory-daily-init](../examples/memory-search/memory-daily-init).
+
+---
+
+## Problem #11: Credentials Scattered Across Scripts
+
+### What happens
+
+Bot tokens, chat IDs, and API keys end up hardcoded in every cron script and the watchdog. When you rotate a token, you have to update it in five places. One missed update and a cron job silently fails.
+
+### What we do: Centralized credentials file
+
+All secrets live in `~/.claude/bot-credentials.env` with `chmod 600`. Every script sources it:
+
+```bash
+source "$HOME/.claude/bot-credentials.env"
+BOT_TOKEN="$BOT_TOKEN_1"
+CHAT_ID="$TELEGRAM_CHAT_ID"
+```
+
+One file to update when tokens change. One file to protect. See [examples/credentials/bot-credentials.env.example](../examples/credentials/bot-credentials.env.example) for the template.
+
+---
+
 ## Summary of Additions
 
 | Addition | What it solves | Files involved |
 |----------|---------------|----------------|
-| Structured state file | Bot loses context across restarts | `cos-state.md`, `vpe-state.md` |
-| Aggressive CLAUDE.md instructions | Bot doesn't save state reliably | `CLAUDE.md` (both projects) |
+| Structured state file | Bot loses context across restarts | `bot-state.md` |
+| Aggressive CLAUDE.md instructions | Bot doesn't save state reliably | `CLAUDE.md` |
 | PreToolUse hook | Bot doesn't read state on new session | `.claude/settings.local.json` |
 | PostToolUse hook | Bot forgets to update state after interactions | `.claude/settings.local.json` |
+| PreCompact hook | Context compaction loses unsaved state | `.claude/settings.local.json` |
+| PostCompact hook | Bot is disoriented after compaction | `.claude/settings.local.json` |
+| Memory search | Bot can't search its own history | `~/bin/memory-search`, SQLite FTS5 |
+| User profile + learning loop | Bot doesn't learn about you over time | `user-profile.md`, PostToolUse hook |
+| Daily notes | Day's context is lost on restart/compaction | `daily/YYYY-MM-DD.md`, `memory-daily-init` |
 | Watchdog cron | Bot appears "RUNNING" but is actually dead | `~/bin/claude-bot-watchdog.sh`, crontab |
-| Cron one-shot scripts | Scheduled tasks (briefings, email checks, PR monitoring) | `~/bin/cos-*.sh`, `~/bin/vpe-*.sh` |
-| `--add-dir` for multi-codebase | Bot needs access beyond working directory | Start scripts (both bots) |
-| Role isolation in CLAUDE.md | Two bots producing conflicting information | `CLAUDE.md` (both projects) |
-| WSL auto-start | Bots don't survive Windows reboot | Windows Scheduled Task |
+| Cron one-shot scripts | Scheduled tasks (briefings, email checks, PR monitoring) | `~/bin/*.sh`, crontab |
+| Credential management | Tokens scattered across scripts | `~/.claude/bot-credentials.env` |
+| `--add-dir` for multi-codebase | Bot needs access beyond working directory | Start scripts |
+| Role isolation in CLAUDE.md | Two bots producing conflicting information | `CLAUDE.md` |
+| WSL auto-start | Bots don't survive Windows reboot | Boot script + Windows Startup |
+| Log rotation | Log files grow unbounded | `logrotate.conf` |
 
 ---
 
-## Recommendation for Peter
+## Recommendations (Priority Order)
 
 ### Priority 1: Watchdog (5 min to set up, biggest reliability win)
 
 If you do nothing else, add the watchdog. Without it, a baked bot sits dead until you manually notice and restart it. With it, max downtime is 5 minutes. The watchdog inspects the tmux pane for "Listening for channel messages" vs "Baked for" and auto-restarts when needed, with a Telegram notification so you know it happened.
 
-### Priority 2: State file + hooks (OpenClaw-style memory)
+### Priority 2: State file + 4-hook lifecycle (persistent memory)
 
-If your bots run long enough to hit context limits (and they will), they lose everything from the prior session. The state file + hook pattern gives you OpenClaw-style memory persistence without needing OpenClaw. It's three files:
+If your bots run long enough to hit context limits (and they will), they lose everything from the prior session. The state file + hook pattern gives you persistent memory without external infrastructure. It's four files:
 
 1. A structured markdown state file (the bot's working memory)
 2. A CLAUDE.md section telling the bot to read/write it aggressively
-3. Hook config in `settings.local.json` that nudges the bot after every Telegram reply
+3. A user profile file for long-term personalization
+4. Hook config in `settings.local.json` with all 4 hooks (PreToolUse, PostToolUse, PreCompact, PostCompact)
 
-### Priority 3: Cron one-shots (proactive behavior)
+### Priority 3: Credential management + cron one-shots (proactive behavior)
 
-If you want the bot to do things on a schedule (morning briefings, email checks, monitoring) without waiting for a message, cron scripts running `claude -p` (one-shot mode) are the way. They're completely independent of the channel bot — separate processes that fire and exit.
+Set up `bot-credentials.env` first, then build cron scripts that source it. If you want the bot to do things on a schedule (morning briefings, email checks, monitoring) without waiting for a message, cron scripts running `claude -p` (one-shot mode) are the way.
 
-### Priority 4: `--add-dir` and role isolation
+### Priority 4: Memory search + daily notes (long-term recall)
 
-These matter once you have multiple bots or a bot that needs access to files outside its working directory. Not critical for a single-bot setup, but essential as complexity grows.
+Once the bot has been running for a few weeks, searchable history becomes valuable. The memory search tool and daily notes give the bot the ability to recall past conversations and decisions without you re-explaining them.
+
+### Priority 5: `--add-dir`, role isolation, and log rotation
+
+These matter once you have multiple bots or a bot that needs access to files outside its working directory. Not critical for a single-bot setup, but essential as complexity grows. Log rotation prevents disk space issues over months of operation.

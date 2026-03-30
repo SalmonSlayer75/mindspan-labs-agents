@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""
+Memory search tool for Claude Telegram bots.
+Uses SQLite FTS5 with BM25 ranking for fast keyword search across
+memory files, state files, daily notes, and conversation transcripts.
+
+Usage:
+    memory-search <agent> <query> [--limit N] [--since YYYY-MM-DD]
+    memory-search <agent> --index     # Rebuild index
+    memory-search <agent> --status    # Show index stats
+
+Examples:
+    memory-search work "quarterly review"
+    memory-search personal "PR review feedback" --limit 5
+    memory-search work --index
+
+Setup:
+    1. Put this script in ~/bin/ and chmod +x it
+    2. Edit AGENT_SOURCES below to match your agent names and directory layout
+    3. The DB is stored in ~/.claude/memory-search/<agent>.db
+    4. Hook integration: call `memory-search <agent> --index` from PreToolUse
+       at session start, and from PostCompact to reindex after compaction.
+"""
+
+import argparse
+import hashlib
+import os
+import re
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+DB_DIR = Path.home() / ".claude" / "memory-search"
+
+# --- CONFIGURE YOUR AGENTS HERE ---
+# Map each agent name to the directories it should search.
+# Adjust paths to match your project layout.
+AGENT_SOURCES = {
+    "work": {
+        "state": [Path.home() / "AgentWorkspace" / "bot-state.md"],
+        "profile": [Path.home() / "AgentWorkspace" / "user-profile.md"],
+        "memory": list((Path.home() / ".claude" / "projects" / "-home-youruser-AgentWorkspace" / "memory").glob("*.md"))
+                  if (Path.home() / ".claude" / "projects" / "-home-youruser-AgentWorkspace" / "memory").exists() else [],
+        "daily": list((Path.home() / "AgentWorkspace" / "daily").glob("*.md")),
+        "reference": list((Path.home() / "AgentWorkspace" / "reference").glob("*.md")),
+        "transcripts": [Path.home() / "AgentWorkspace" / "conversation-log.md"],
+    },
+    "personal": {
+        "state": [Path.home() / "Projects" / "bot-state.md"],
+        "memory": list((Path.home() / ".claude" / "projects" / "-home-youruser-Projects" / "memory").glob("*.md"))
+                  if (Path.home() / ".claude" / "projects" / "-home-youruser-Projects" / "memory").exists() else [],
+        "daily": list((Path.home() / "Projects" / "daily").glob("*.md")),
+        "reference": list((Path.home() / "Projects" / "reference").glob("*.md")),
+        "transcripts": [Path.home() / "Projects" / "conversation-log.md"],
+    },
+}
+# --- END CONFIGURATION ---
+
+
+def get_db(agent: str) -> sqlite3.Connection:
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    db_path = DB_DIR / f"{agent}.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY,
+            path TEXT UNIQUE,
+            source_type TEXT,
+            modified REAL,
+            content_hash TEXT
+        )
+    """)
+    # FTS5 table with BM25 ranking
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS search_index
+            USING fts5(
+                path,
+                source_type,
+                title,
+                content,
+                date_str,
+                tokenize='porter unicode61'
+            )
+        """)
+    except sqlite3.OperationalError:
+        pass  # Already exists
+    conn.commit()
+    return conn
+
+
+def content_hash(text: str) -> str:
+    return hashlib.md5(text.encode()).hexdigest()
+
+
+def chunk_document(path: Path, source_type: str) -> list[dict]:
+    """Split a document into searchable chunks."""
+    if not path.exists():
+        return []
+
+    text = path.read_text(errors="replace")
+    if not text.strip():
+        return []
+
+    filename = path.name
+    date_str = ""
+    # Extract date from filename (YYYY-MM-DD.md pattern)
+    date_match = re.match(r"(\d{4}-\d{2}-\d{2})", filename)
+    if date_match:
+        date_str = date_match.group(1)
+
+    chunks = []
+
+    if source_type == "transcripts":
+        # Split conversation log by entries (delimited by --- or timestamps)
+        entries = re.split(r"\n---+\n|\n(?=## \d{4}-\d{2}-\d{2})", text)
+        for entry in entries:
+            entry = entry.strip()
+            if len(entry) > 50:  # Skip tiny fragments
+                entry_date = ""
+                dm = re.search(r"(\d{4}-\d{2}-\d{2})", entry[:100])
+                if dm:
+                    entry_date = dm.group(1)
+                chunks.append({
+                    "path": str(path),
+                    "source_type": source_type,
+                    "title": f"Conversation {entry_date or filename}",
+                    "content": entry[:2000],  # Cap chunk size
+                    "date_str": entry_date or date_str,
+                })
+    elif source_type == "daily":
+        # Daily notes -- index as one chunk
+        chunks.append({
+            "path": str(path),
+            "source_type": source_type,
+            "title": f"Daily note {date_str or filename}",
+            "content": text[:4000],
+            "date_str": date_str,
+        })
+    else:
+        # Split by markdown sections
+        sections = re.split(r"\n(?=##? )", text)
+        for section in sections:
+            section = section.strip()
+            if len(section) > 30:
+                title_match = re.match(r"##?\s+(.+)", section)
+                title = title_match.group(1) if title_match else filename
+                chunks.append({
+                    "path": str(path),
+                    "source_type": source_type,
+                    "title": title,
+                    "content": section[:2000],
+                    "date_str": date_str,
+                })
+
+    return chunks
+
+
+def index_agent(agent: str, force: bool = False) -> int:
+    """Index all documents for an agent. Returns number of chunks indexed."""
+    conn = get_db(agent)
+    sources = AGENT_SOURCES.get(agent, {})
+    total = 0
+
+    # Refresh glob patterns (files may have been added since module load)
+    for source_type in ["daily", "memory", "reference"]:
+        if source_type in sources:
+            for base_key, base_path in [("work", "AgentWorkspace"), ("personal", "Projects")]:
+                if agent == base_key:
+                    glob_dir = Path.home() / base_path / source_type
+                    if glob_dir.exists():
+                        sources[source_type] = list(glob_dir.glob("*.md"))
+
+    for source_type, paths in sources.items():
+        for path in paths:
+            if not path.exists():
+                continue
+
+            stat = path.stat()
+            chash = content_hash(path.read_text(errors="replace"))
+
+            # Check if already indexed and unchanged
+            if not force:
+                row = conn.execute(
+                    "SELECT content_hash FROM documents WHERE path = ?",
+                    (str(path),)
+                ).fetchone()
+                if row and row[0] == chash:
+                    continue
+
+            # Remove old entries for this path
+            conn.execute("DELETE FROM search_index WHERE path = ?", (str(path),))
+            conn.execute("DELETE FROM documents WHERE path = ?", (str(path),))
+
+            # Index new chunks
+            chunks = chunk_document(path, source_type)
+            for chunk in chunks:
+                conn.execute(
+                    "INSERT INTO search_index(path, source_type, title, content, date_str) VALUES (?, ?, ?, ?, ?)",
+                    (chunk["path"], chunk["source_type"], chunk["title"], chunk["content"], chunk["date_str"])
+                )
+                total += 1
+
+            conn.execute(
+                "INSERT OR REPLACE INTO documents(path, source_type, modified, content_hash) VALUES (?, ?, ?, ?)",
+                (str(path), source_type, stat.st_mtime, chash)
+            )
+
+    conn.commit()
+    conn.close()
+    return total
+
+
+def search(agent: str, query: str, limit: int = 10, since: str = None) -> list[dict]:
+    """Search the index. Returns ranked results with snippets."""
+    conn = get_db(agent)
+
+    # Auto-index if DB is empty
+    count = conn.execute("SELECT count(*) FROM search_index").fetchone()[0]
+    if count == 0:
+        conn.close()
+        index_agent(agent)
+        conn = get_db(agent)
+
+    where_clause = ""
+    params = [query]
+    if since:
+        where_clause = "AND date_str >= ?"
+        params.append(since)
+
+    results = conn.execute(f"""
+        SELECT
+            path, source_type, title,
+            snippet(search_index, 3, '>>>', '<<<', '...', 40) as snippet,
+            date_str,
+            bm25(search_index, 1.0, 1.0, 2.0, 5.0, 3.0) as rank
+        FROM search_index
+        WHERE search_index MATCH ?
+        {where_clause}
+        ORDER BY rank
+        LIMIT ?
+    """, params + [limit]).fetchall()
+
+    conn.close()
+
+    return [
+        {
+            "path": r[0],
+            "type": r[1],
+            "title": r[2],
+            "snippet": r[3],
+            "date": r[4],
+            "score": round(-r[5], 2),  # BM25 returns negative scores
+        }
+        for r in results
+    ]
+
+
+def show_status(agent: str):
+    conn = get_db(agent)
+    total = conn.execute("SELECT count(*) FROM search_index").fetchone()[0]
+    docs = conn.execute("SELECT count(*) FROM documents").fetchone()[0]
+    by_type = conn.execute(
+        "SELECT source_type, count(*) FROM search_index GROUP BY source_type"
+    ).fetchall()
+    conn.close()
+
+    print(f"Agent: {agent}")
+    print(f"Documents: {docs}")
+    print(f"Search chunks: {total}")
+    for stype, cnt in by_type:
+        print(f"  {stype}: {cnt}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Memory search for Claude bots")
+    parser.add_argument("agent", choices=list(AGENT_SOURCES.keys()), help="Agent to search")
+    parser.add_argument("query", nargs="?", help="Search query")
+    parser.add_argument("--limit", type=int, default=10, help="Max results")
+    parser.add_argument("--since", help="Only results from this date (YYYY-MM-DD)")
+    parser.add_argument("--index", action="store_true", help="Rebuild index")
+    parser.add_argument("--force", action="store_true", help="Force full reindex")
+    parser.add_argument("--status", action="store_true", help="Show index status")
+    args = parser.parse_args()
+
+    if args.index:
+        n = index_agent(args.agent, force=args.force)
+        print(f"Indexed {n} chunks for {args.agent}")
+        return
+
+    if args.status:
+        show_status(args.agent)
+        return
+
+    if not args.query:
+        parser.error("query is required (unless using --index or --status)")
+
+    results = search(args.agent, args.query, args.limit, args.since)
+
+    if not results:
+        print("No results found.")
+        return
+
+    for i, r in enumerate(results, 1):
+        print(f"\n--- Result {i} (score: {r['score']}, type: {r['type']}) ---")
+        print(f"Source: {r['path']}")
+        if r["date"]:
+            print(f"Date: {r['date']}")
+        print(f"Title: {r['title']}")
+        print(f"Snippet: {r['snippet']}")
+
+
+if __name__ == "__main__":
+    main()

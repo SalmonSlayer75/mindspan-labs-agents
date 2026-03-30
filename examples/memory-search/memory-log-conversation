@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""
+Log a conversation exchange to the agent's conversation log and daily note.
+Called by PostToolUse hooks after Telegram replies.
+
+Usage:
+    memory-log-conversation <agent> <direction> <text>
+
+    direction: "in" (user message) or "out" (bot reply)
+
+Example:
+    memory-log-conversation work in "What's on my calendar today?"
+    memory-log-conversation work out "You have 3 meetings..."
+
+Setup:
+    1. Put this script in ~/bin/ and chmod +x it
+    2. Edit the AGENT_DIRS dict below to match your agent names and directories
+    3. Call from PostToolUse hooks to automatically log every exchange
+"""
+
+import sys
+import os
+from datetime import datetime
+from pathlib import Path
+
+# --- CONFIGURE YOUR AGENTS HERE ---
+AGENT_DIRS = {
+    "work": Path.home() / "AgentWorkspace",
+    "personal": Path.home() / "Projects",
+}
+# --- END CONFIGURATION ---
+
+
+def main():
+    if len(sys.argv) < 4:
+        print("Usage: memory-log-conversation <agent> <in|out> <text>", file=sys.stderr)
+        sys.exit(1)
+
+    agent = sys.argv[1]
+    direction = sys.argv[2]
+    text = " ".join(sys.argv[3:])
+
+    base = AGENT_DIRS.get(agent)
+    if not base:
+        print(f"Unknown agent: {agent}", file=sys.stderr)
+        sys.exit(1)
+
+    now = datetime.now()
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
+    prefix = "User" if direction == "in" else agent.upper()
+
+    # Append to conversation log
+    log_file = base / "conversation-log.md"
+    entry = f"\n[{date_str} {time_str}] **{prefix}:** {text[:500]}\n"
+
+    with open(log_file, "a") as f:
+        f.write(entry)
+
+    # Append to daily note
+    daily_dir = base / "daily"
+    daily_dir.mkdir(exist_ok=True)
+    daily_file = daily_dir / f"{date_str}.md"
+
+    if not daily_file.exists():
+        header = f"# {agent.upper()} Daily Note -- {date_str}\n\n## Conversations\n"
+        daily_file.write_text(header)
+
+    with open(daily_file, "a") as f:
+        f.write(f"- [{time_str}] **{prefix}:** {text[:300]}\n")
+
+
+if __name__ == "__main__":
+    main()

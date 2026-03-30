@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+"""
+Initialize today's daily note for an agent if it doesn't exist.
+Called by PreToolUse hooks at session start, or by cron.
+
+Usage:
+    memory-daily-init <agent>
+
+Setup:
+    1. Put this script in ~/bin/ and chmod +x it
+    2. Edit the AGENT_DIRS dict below to match your agent names and directories
+    3. Call from PreToolUse hooks on first reply (alongside memory-search --index)
+"""
+
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+# --- CONFIGURE YOUR AGENTS HERE ---
+AGENT_DIRS = {
+    "work": Path.home() / "AgentWorkspace",
+    "personal": Path.home() / "Projects",
+}
+# --- END CONFIGURATION ---
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: memory-daily-init <agent>", file=sys.stderr)
+        sys.exit(1)
+
+    agent = sys.argv[1]
+    base = AGENT_DIRS.get(agent)
+    if not base:
+        print(f"Unknown agent: {agent}", file=sys.stderr)
+        sys.exit(1)
+
+    daily_dir = base / "daily"
+    daily_dir.mkdir(exist_ok=True)
+
+    today = datetime.now()
+    date_str = today.strftime("%Y-%m-%d")
+    weekday = today.strftime("%A")
+    daily_file = daily_dir / f"{date_str}.md"
+
+    if not daily_file.exists():
+        daily_file.write_text(
+            f"# {agent.upper()} Daily Note -- {date_str} ({weekday})\n\n"
+            f"## Conversations\n\n"
+            f"## Decisions Made\n\n"
+            f"## Action Items\n\n"
+            f"## Notes\n\n"
+        )
+        print(f"Created {daily_file}")
+    else:
+        print(f"Already exists: {daily_file}")
+
+    # Clean up old daily notes (keep 14 days)
+    cutoff = today - timedelta(days=14)
+    for old_file in daily_dir.glob("*.md"):
+        try:
+            file_date = datetime.strptime(old_file.stem, "%Y-%m-%d")
+            if file_date < cutoff:
+                old_file.unlink()
+                print(f"Pruned old daily note: {old_file.name}")
+        except ValueError:
+            pass
+
+
+if __name__ == "__main__":
+    main()

@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ ! -f /tmp/mybot-state-loaded ]; then echo '[STARTUP] Read ~/myproject/bot-state.md FIRST to restore your working memory before replying.'; touch /tmp/mybot-state-loaded; fi"
+            "command": "if [ ! -f /tmp/mybot-state-loaded ]; then ~/bin/memory-daily-init work 2>/dev/null; ~/bin/memory-search work --index 2>/dev/null; echo '[STARTUP] Read these files FIRST to restore your working memory: (1) ~/AgentWorkspace/bot-state.md (2) ~/AgentWorkspace/user-profile.md (3) ~/AgentWorkspace/daily/'$(date +%Y-%m-%d)'.md. You can search past context with: memory-search work \"query\"'; touch /tmp/mybot-state-loaded; fi"
           }
         ]
       }
@@ -29,7 +29,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo '[STATE REMINDER] You just sent a Telegram reply. If this interaction involved any decisions, action items, commitments, or important context — update ~/myproject/bot-state.md NOW before doing anything else.'"
+            "command": "echo '[STATE REMINDER] You just sent a Telegram reply. (1) Update ~/AgentWorkspace/bot-state.md if decisions/action items/commitments were made. (2) If you learned anything new about the user (preference, relationship, habit, personal detail), update ~/AgentWorkspace/user-profile.md.'"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[PRE-COMPACTION] Context is about to be compacted. IMMEDIATELY: (1) Save unsaved state to ~/AgentWorkspace/bot-state.md (2) Update ~/AgentWorkspace/user-profile.md with any new learnings about the user (3) Add important notes to ~/AgentWorkspace/daily/'$(date +%Y-%m-%d)'.md. This is your LAST CHANCE to persist context.'"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/bin/memory-search work --index 2>/dev/null; echo '[POST-COMPACTION] Context was just compacted. Re-read: (1) ~/AgentWorkspace/bot-state.md (2) ~/AgentWorkspace/user-profile.md (3) ~/AgentWorkspace/daily/'$(date +%Y-%m-%d)'.md. Search past context with: memory-search work \"query\"'"
           }
         ]
       }

@@ -1,6 +1,6 @@
 # Agent Skills (Claude Code Slash Commands)
 
-These are reusable Claude Code slash commands (placed in `.claude/commands/`) that give your Telegram bot specialized capabilities. They were developed by Mindspan Labs for production use across multiple projects and are designed to be portable — 38 skills across 5 categories.
+These are reusable Claude Code slash commands (placed in `.claude/commands/`) that give your Telegram bot specialized capabilities. They were developed by the community for production use across multiple projects and are designed to be portable — 38 skills across 5 categories.
 
 ## How to Use
 
@@ -80,7 +80,7 @@ User experience, design systems, and content strategy.
 | `/ux-writer` | UX writing review — microcopy, error messages, onboarding text, CTAs, tone consistency |
 | `/error-ux-auditor` | Error state UX audit — are errors helpful, recoverable, and human-readable? |
 
-### Additional specialized skills (from Mindspan Labs, not included here)
+### Additional specialized skills (from the community, not included here)
 
 Some skills are too project-specific to be portable but worth knowing about:
 
