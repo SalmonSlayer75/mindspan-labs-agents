@@ -31,7 +31,10 @@ We run six Claude Code bots on a single machine via Telegram — a **Chief of St
 
 ## Quick Start
 
-### New setup? Start here:
+### New to all of this? Start here:
+1. Read the **[How-To Guide](docs/how-to-guide.md)** — a step-by-step walkthrough with explanations of *why* each piece exists, aimed at PMs and operators (not just engineers)
+
+### Want the technical reference instead?
 1. Follow the [Base Setup Guide](docs/base-setup-guide.md) to get a working Telegram bot
 
 ### Already have a working bot? Add these in order:
@@ -92,7 +95,8 @@ We run six Claude Code bots on a single machine via Telegram — a **Chief of St
 
 ```
 docs/
-  base-setup-guide.md              # Step-by-step: from zero to working Telegram bot
+  how-to-guide.md                  # Complete walkthrough for PMs/operators (start here)
+  base-setup-guide.md              # Technical reference: from zero to working Telegram bot
   extensions.md                    # Full writeup of all production additions
   personalization.md               # User profile learning loop pattern
   state-file-and-hooks.md          # Deep dive: persistent memory across restarts
