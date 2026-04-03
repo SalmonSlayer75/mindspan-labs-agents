@@ -32,6 +32,9 @@ A step-by-step guide for non-engineers who want to run a team of Claude Code bot
 - [C. Agent Skills (Slash Commands)](#c-agent-skills-slash-commands)
 - [D. Fleet Hook Automation](#d-fleet-hook-automation)
 
+**Part 3: Platform Appendix**
+- [E. Running on a Mac Mini](#e-running-on-a-mac-mini)
+
 ---
 
 # Part 1: Core Fleet
@@ -957,6 +960,238 @@ node ~/bin/update-fleet-hooks.js
 It generates validated hook configs for every bot. When you need to change a hook pattern fleet-wide (like upgrading from reminder-style to mandatory-save-style), edit one file and regenerate.
 
 See [examples/fleet-hooks/update-fleet-hooks.js](../examples/fleet-hooks/update-fleet-hooks.js) for the full script with comments.
+
+---
+
+# Part 3: Platform Appendix
+
+## E. Running on a Mac Mini
+
+A Mac Mini (especially the M-series models) is a great always-on machine for running a bot fleet — quiet, low power consumption, and reliable. The main guide assumes Linux, so this appendix covers everything that's different on macOS.
+
+### What's the same
+
+Most of the setup is identical:
+- Claude Code CLI works the same on macOS
+- The Telegram plugin, hooks, state files, CLAUDE.md, inbox system — all unchanged
+- The start scripts, management CLI, and memory search scripts work as-is (they're bash)
+- tmux works the same (`brew install tmux`)
+
+### What's different
+
+| Component | Linux | macOS |
+|-----------|-------|-------|
+| Package manager | `apt` | `brew` (Homebrew) |
+| Auto-start on boot | systemd | launchd |
+| Keep running after logout | `loginctl enable-linger` | launchd handles this natively |
+| Service logs | `journalctl` | `log show` or Console.app |
+| System cron | crontab (same) | crontab (same) or launchd timers |
+| File paths | `/home/username` | `/Users/username` |
+
+### Prerequisites (macOS version)
+
+```bash
+# Install Homebrew if you don't have it
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install tmux
+brew install tmux
+
+# Install Bun (required by the Telegram plugin)
+brew install oven-sh/bun/bun
+
+# Claude Code CLI — install from https://claude.ai/code
+# Or if you use npm:
+npm install -g @anthropic-ai/claude-code
+```
+
+### Auto-start with launchd (replaces systemd)
+
+macOS uses `launchd` instead of `systemd` for managing background services. The concept is the same — you create a config file that tells the system to start your bot on boot and restart it if it crashes.
+
+Create `~/Library/LaunchAgents/com.claude.cos-bot.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.claude.cos-bot</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/tmux</string>
+        <string>-L</string>
+        <string>claude-cos</string>
+        <string>new-session</string>
+        <string>-d</string>
+        <string>-s</string>
+        <string>claude-cos-bot</string>
+        <string>/Users/yourusername/bin/claude-cos-bot-start.sh</string>
+    </array>
+
+    <!-- Start on boot / login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it exits -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Wait 10 seconds before restarting after a crash -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Log output for debugging -->
+    <key>StandardOutPath</key>
+    <string>/Users/yourusername/.claude/channels/cos-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/yourusername/.claude/channels/cos-launchd-error.log</string>
+
+    <!-- Set environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/yourusername</string>
+        <key>PATH</key>
+        <string>/Users/yourusername/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+```
+
+> **Important**: Replace `/Users/yourusername` with your actual home directory throughout. On Apple Silicon Macs, Homebrew lives at `/opt/homebrew/bin`. On Intel Macs, it's `/usr/local/bin`. Check with `brew --prefix`.
+
+> **Also important**: The tmux path may be `/opt/homebrew/bin/tmux` on Apple Silicon instead of `/usr/local/bin/tmux`. Check with `which tmux`.
+
+Load and start the service:
+
+```bash
+# Load the service (starts immediately because RunAtLoad is true)
+launchctl load ~/Library/LaunchAgents/com.claude.cos-bot.plist
+
+# Check status
+launchctl list | grep claude
+
+# If you need to stop it
+launchctl unload ~/Library/LaunchAgents/com.claude.cos-bot.plist
+```
+
+Repeat for each bot — create a separate `.plist` file for each one (e.g., `com.claude.marketing-bot.plist`).
+
+> **Why launchd instead of just putting tmux commands in Login Items?** Login Items only run when you log in to the GUI. launchd runs services at boot, before anyone logs in, and keeps them running through logout/login cycles. It also handles crash recovery (the `KeepAlive` key) — if tmux dies, launchd restarts it automatically.
+
+### Start script adjustments for macOS
+
+The start scripts from Part 1 work on macOS with two path changes:
+
+```bash
+#!/usr/bin/env bash
+
+# macOS paths — adjust for your setup
+# Apple Silicon Macs: Homebrew is at /opt/homebrew
+# Intel Macs: Homebrew is at /usr/local
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+export HOME="/Users/yourusername"    # <-- CHANGE THIS (note: /Users, not /home)
+
+export TELEGRAM_STATE_DIR="$HOME/.claude/channels/telegram-cos"
+
+TOKEN_PREFIX=$(head -c 10 "$TELEGRAM_STATE_DIR/.env" | grep -oP '\d+' | head -1)
+if [ -n "$TOKEN_PREFIX" ]; then
+    pkill -f "telegram.*${TOKEN_PREFIX}" 2>/dev/null || true
+    sleep 1
+fi
+
+cd ~/COS
+
+exec claude --channels plugin:telegram@claude-plugins-official
+```
+
+> **Note on `grep -oP`**: macOS's built-in `grep` doesn't support `-P` (Perl regex). If the zombie poller cleanup line fails, either install GNU grep (`brew install grep`, then use `ggrep -oP`) or replace the line with: `TOKEN_PREFIX=$(head -c 40 "$TELEGRAM_STATE_DIR/.env" | sed -n 's/.*=\([0-9]*\).*/\1/p' | head -1)`
+
+### Viewing logs
+
+```bash
+# launchd service logs (stdout/stderr from the plist config)
+tail -f ~/.claude/channels/cos-launchd.log
+tail -f ~/.claude/channels/cos-launchd-error.log
+
+# System log for launchd events
+log show --predicate 'senderImagePath CONTAINS "tmux"' --last 1h
+
+# Or use Console.app (GUI) and search for "claude"
+```
+
+### Preventing sleep
+
+A Mac Mini that goes to sleep stops your bots. Make sure it stays awake:
+
+**System Settings > Energy Saver (or Battery):**
+- Turn OFF "Automatically sleep when the display is off"
+- Turn ON "Prevent your Mac from automatically sleeping when the display is off"
+- Turn ON "Wake for network access" (so you can SSH in remotely)
+- Turn ON "Start up automatically after a power failure"
+
+Or from the terminal:
+
+```bash
+# Prevent sleep entirely (survives reboots via Energy Saver settings)
+sudo pmset -a sleep 0
+sudo pmset -a disksleep 0
+
+# Verify
+pmset -g
+```
+
+> **Why this matters**: Unlike a Linux server or WSL on a desktop, Mac Mini defaults to sleeping after a period of inactivity. A sleeping Mac can't process Telegram messages. The bots will appear dead until you wake the machine.
+
+### Cron on macOS
+
+`crontab` works the same on macOS:
+
+```bash
+crontab -e
+# Same syntax as Linux:
+*/5 * * * * ~/bin/claude-bot-watchdog.sh all >> ~/.claude/channels/watchdog.log 2>&1
+```
+
+One gotcha: macOS may prompt you to grant "Full Disk Access" to cron. If your cron scripts fail with permission errors, go to **System Settings > Privacy & Security > Full Disk Access** and add `/usr/sbin/cron`.
+
+> **Alternative: launchd timers instead of cron.** You can use launchd for scheduled tasks too (add a `StartInterval` or `StartCalendarInterval` key to a plist). But crontab is simpler for most cases and works identically to the Linux instructions.
+
+### Remote access
+
+If your Mac Mini is headless (no monitor), you'll want remote access:
+
+```bash
+# Enable SSH (if not already on)
+sudo systemsetup -setremotelogin on
+
+# Connect from another machine
+ssh yourusername@your-mac-mini-ip
+```
+
+You can also use **Screen Sharing** (System Settings > Sharing > Screen Sharing) for GUI access, but SSH is sufficient for bot management.
+
+> **Tip**: Set a static IP or use a dynamic DNS service so you can always reach your Mac Mini, even if your router assigns a new IP after a reboot.
+
+### Mac Mini vs Linux VPS: tradeoffs
+
+| Factor | Mac Mini | Linux VPS |
+|--------|----------|-----------|
+| **Cost** | ~$600 one-time (M2/M4 Mini) | $5-20/month ongoing |
+| **Performance** | Fast (local SSD, lots of RAM) | Varies by plan |
+| **Reliability** | Depends on your power/internet | Cloud-grade uptime |
+| **Privacy** | Everything stays on your machine | Data on someone else's server |
+| **Maintenance** | You handle updates, power, internet | Provider handles hardware |
+| **Remote access** | SSH over your network (or Tailscale for remote) | SSH from anywhere |
+| **Power outages** | Need a UPS for reliability | Not your problem |
+
+> **Our recommendation**: If you already have a Mac Mini or are buying one anyway, use it. If you're starting from scratch and want the lowest-friction option, a $10/month Linux VPS on Hetzner or DigitalOcean avoids all the power/sleep/network concerns. Either works — pick what fits your situation.
 
 ---
 
