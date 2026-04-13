@@ -72,6 +72,21 @@ Working on: ${TOPIC}"
         if [ "${CLAUDE_CRON:-}" = "1" ]; then
             exit 0
         fi
+        # Cooldown: suppress if we already notified within the last 5 minutes.
+        # In --channels mode the Stop hook can fire on context resets between
+        # messages, not just on final session death. Without this, the user
+        # gets spammed with "session ended" on every turn boundary.
+        local cooldown_file="/tmp/death-rattle-${BOT}-cooldown"
+        if [ -f "$cooldown_file" ]; then
+            local now cooldown_time age
+            now=$(date +%s)
+            cooldown_time=$(stat -c %Y "$cooldown_file" 2>/dev/null || echo 0)
+            age=$(( now - cooldown_time ))
+            if [ "$age" -lt 300 ]; then
+                exit 0  # within 5-minute cooldown
+            fi
+        fi
+        touch "$cooldown_file"
         MSG="🛑 ${BOT_UPPER} session ended"
         [ -n "$TOPIC" ] && MSG="$MSG
 
