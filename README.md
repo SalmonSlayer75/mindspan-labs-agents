@@ -116,7 +116,7 @@ examples/
     work-bot-start.sh
 
   watchdog/                        # Auto-restart bots that hit context limits
-    claude-bot-watchdog.sh         # With local-model backoff logic
+    claude-bot-watchdog.sh         # With sentinel paging, debounce, and local-model backoff
 
   cron-scripts/                    # Templates for scheduled tasks
     scheduled-task-template.sh     # With flock, stderr capture, --max-turns
@@ -159,6 +159,7 @@ examples/
   bot-gate/                        # Hard state-save enforcement gate
     bot-gate.py                    # Unified gate with arm/check/stop-warn modes
     gate-lists.sh                  # Tool classification (exempt vs substantive)
+    active-conversation-hash       # AC section hasher (required by bot-gate.py)
 
   hook-profiles/                   # Runtime hook gating by profile level
     hook-profile-gate.sh           # minimal/standard/strict profile wrapper

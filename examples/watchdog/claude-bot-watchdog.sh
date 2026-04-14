@@ -210,6 +210,95 @@ check_and_restart() {
 #     fi
 # }
 
+# --- Bot-gate sentinel paging ---
+# If you use the bot-gate (examples/bot-gate/), the gate writes sentinel
+# lines to per-bot log files when unusual events occur (fail-closed blocks,
+# unclassified tools, etc.). This section monitors those logs and pages you
+# via Telegram when actionable events happen.
+#
+# Uses a watermark file to avoid re-paging the same sentinel.
+
+check_sentinels() {
+    local name="$1"
+    local gate_log="$HOME/.claude/channels/bot-gate-${name}.log"
+    local watermark="$HOME/.claude/channels/bot-gate-${name}.watermark"
+
+    # No gate log yet — this bot hasn't been wired to bot-gate
+    [ -f "$gate_log" ] || return 0
+
+    # Read watermark (byte offset of last read position)
+    local offset=0
+    if [ -f "$watermark" ]; then
+        offset=$(cat "$watermark" 2>/dev/null || echo 0)
+    fi
+
+    local file_size
+    file_size=$(stat -c %s "$gate_log" 2>/dev/null || echo 0)
+
+    # Nothing new since last check
+    [ "$file_size" -le "$offset" ] && return 0
+
+    # Extract new lines since watermark
+    local new_lines
+    new_lines=$(tail -c +"$((offset + 1))" "$gate_log" | grep "BOT-GATE-SENTINEL" || true)
+
+    # Update watermark to current file size
+    echo "$file_size" > "$watermark"
+
+    [ -z "$new_lines" ] && return 0
+
+    # Classify sentinels: fail-closed and UNCLASSIFIED are P0/P1
+    local actionable=""
+    local info_only=""
+
+    while IFS= read -r line; do
+        if echo "$line" | grep -qE "fail-closed|UNCLASSIFIED"; then
+            actionable="${actionable}${line}"$'\n'
+        elif echo "$line" | grep -q "fail-open"; then
+            info_only="${info_only}${line}"$'\n'
+        fi
+    done <<< "$new_lines"
+
+    # Page on actionable sentinels (fail-closed / UNCLASSIFIED)
+    if [ -n "$actionable" ]; then
+        # Debounce: if all actionable entries are "AC malformed" and the AC
+        # section is currently valid, the bot self-corrected — downgrade to
+        # info instead of paging P1. This prevents noisy alerts from the
+        # brief race window during session transitions.
+        local non_malformed=""
+        non_malformed=$(echo -n "$actionable" | grep -v "AC malformed" || true)
+        if [ -z "$non_malformed" ]; then
+            local state_file="${BOT_STATE_FILE[$name]:-}"
+            if [ -n "$state_file" ] && [ -f "$state_file" ]; then
+                if "$HOME/bin/active-conversation-hash" "$state_file" >/dev/null 2>&1; then
+                    # AC is valid now — transient malformed, skip P1 page
+                    local count
+                    count=$(echo -n "$actionable" | grep -c "BOT-GATE-SENTINEL" || echo 0)
+                    log "[$name] bot-gate: $count AC-malformed sentinel(s) suppressed (AC now valid — transient)"
+                    actionable=""
+                fi
+            fi
+        fi
+
+        if [ -n "$actionable" ]; then
+            local count
+            count=$(echo -n "$actionable" | grep -c "BOT-GATE-SENTINEL" || echo 0)
+            local sample
+            sample=$(echo "$actionable" | head -3 | sed 's/^[0-9]* //')
+
+            send_telegram "${BOT_TOKEN[$name]}" "BOT-GATE P1: ${name^^} — ${count} actionable sentinel(s). ${sample}"
+            log "[$name] bot-gate: paged $count actionable sentinel(s)"
+        fi
+    fi
+
+    # Info on fail-open sentinels (degraded gate, still worth knowing)
+    if [ -n "$info_only" ]; then
+        local count
+        count=$(echo -n "$info_only" | grep -c "BOT-GATE-SENTINEL" || echo 0)
+        log "[$name] bot-gate: $count fail-open sentinel(s) (gate degraded, not blocking)"
+    fi
+}
+
 # --- CONFIGURE YOUR BOT NAMES HERE ---
 resolve_targets() {
     local target="${1:-all}"
@@ -223,6 +312,7 @@ resolve_targets() {
 TARGET="${1:-all}"
 for bot in $(resolve_targets "$TARGET"); do
     check_and_restart "$bot"
+    check_sentinels "$bot"
 done
 # Uncomment if using local model health check:
 # check_local_model

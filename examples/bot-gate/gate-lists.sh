@@ -25,12 +25,17 @@ TaskCreate
 "
 
 # Any tool name starting with one of these prefixes is substantive.
-# Add your MCP tool prefixes here.
+# Add your MCP tool prefixes here. Common patterns:
+#   mcp__claude_ai_Notion__    — Notion via Claude.ai integration
+#   mcp__claude_ai_Gmail__     — Gmail via Claude.ai integration
+#   mcp__claude_ai_Google_Calendar__ — Calendar via Claude.ai integration
+#   mcp__google-workspace__    — Google Workspace MCP server
+#   mcp__granola__             — Granola meeting notes
 GATE_SUBSTANTIVE_PREFIXES="
 mcp__google-workspace__
-mcp__notion__
-mcp__calendar__
-mcp__email__
+mcp__claude_ai_Notion__
+mcp__claude_ai_Gmail__
+mcp__claude_ai_Google_Calendar__
 "
 
 # Exempt tools — always allowed, never counted.

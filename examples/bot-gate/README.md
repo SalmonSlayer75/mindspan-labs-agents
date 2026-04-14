@@ -37,10 +37,11 @@ Session ends
 
 - **bot-gate.py** — The gate script (Python). Handles all three modes.
 - **gate-lists.sh** — Tool classification lists. Single source of truth for which tools are substantive vs exempt.
+- **active-conversation-hash** — Python helper that extracts and hashes the `## Active Conversation` section from a state file. Required dependency for bot-gate.py. Exit codes: 0 = valid hash, 1 = internal error (fail-open), 2 = malformed/missing section (fail-closed). Run `active-conversation-hash --self-test` to verify.
 
 ## Setup
 
-1. Copy both files to `~/bin/` and `chmod +x`
+1. Copy all three files to `~/bin/` and `chmod +x`
 2. Edit `BOT_WORKDIRS` and `STATE_FILENAMES` in `bot-gate.py` for your bots
 3. Edit `gate-lists.sh` to add your MCP tool prefixes
 4. Add hooks to your bot's `.claude/settings.local.json`:
