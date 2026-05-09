@@ -2,7 +2,7 @@
 
 When you run multiple bots, they need a way to coordinate. A task that starts with the CTO may require action from a VP Engineering bot. A DevOps bot may need to notify all bots about infrastructure changes.
 
-This guide covers the file-based inbox system we use to coordinate a fleet of 6 bots.
+This guide covers the file-based inbox system we use to coordinate a fleet of 7 bots.
 
 ## The Problem
 

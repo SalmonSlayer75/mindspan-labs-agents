@@ -644,7 +644,7 @@ See [examples/security-deny-rules/](../examples/security-deny-rules/) for the fu
 
 ### What happens
 
-With 6 bots running, problems hide. A bot silently loses context. A cron job fails every third run. A hook is misconfigured. You only discover it when you notice the bot acting strangely — hours or days later.
+With 7 bots running, problems hide. A bot silently loses context. A cron job fails every third run. A hook is misconfigured. You only discover it when you notice the bot acting strangely — hours or days later.
 
 ### What we do now: Automated Fleet Review
 

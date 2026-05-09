@@ -4,7 +4,7 @@ Battle-tested configuration for running a fleet of Claude Code bots as 24/7 Tele
 
 ## What This Is
 
-We run six Claude Code bots on a single machine via Telegram — a **Chief of Staff** (email, calendar, admin), a **CTO** (cross-project architecture, standards), two **VP Engineering** bots (one per project), a **DevOps** lead (fleet management), and a **Product Marketing** agent (research, content). After months in production, we hit real problems and built solutions for each one. This repo contains those solutions as reusable templates.
+We run seven Claude Code bots on a single machine via Telegram — a **Chief of Staff** (email, calendar, admin), a **CTO** (cross-project architecture, standards), two **VP Engineering** bots (one per project), a **DevOps** lead (fleet management), a **Product Marketing** agent (research, content), and a **Senior Consultant** (client-facing strategy, deliverables). After months in production, we hit real problems and built solutions for each one. This repo contains those solutions as reusable templates.
 
 **What you get**: You message a Telegram bot from your phone, and Claude Code responds — with full access to your codebase, files, terminal, databases, and any MCP tools you've configured. It remembers what you were working on across session restarts, coordinates with other bots via an inbox system, proactively does things on a schedule, and auto-recovers when it hits context limits.
 
@@ -239,24 +239,24 @@ examples/
 │                   (Telegram)                         │
 └──────────────────────┬──────────────────────────────┘
                        │
-     ┌─────────┬───────┼───────┬─────────┬──────────┐
-     │         │       │       │         │          │
-  @cos_bot  @cto_bot  @vpe1  @vpe2  @devops   @mktg_bot
-     │         │       │       │         │          │
-┌────┴────┐ ┌──┴──┐ ┌──┴──┐ ┌──┴──┐ ┌────┴────┐ ┌──┴──┐
-│  tmux   │ │tmux │ │tmux │ │tmux │ │  tmux   │ │tmux │
-│ session │ │sess.│ │sess.│ │sess.│ │ session │ │sess.│
-│         │ │     │ │     │ │     │ │         │ │     │
-│ Claude  │ │Clau-│ │Clau-│ │Clau-│ │ Claude  │ │Clau-│
-│ Code    │ │de   │ │de   │ │de   │ │ Code    │ │de   │
-│--channel│ │Code │ │Code │ │Code │ │--channel│ │Code │
-│         │ │     │ │     │ │     │ │         │ │     │
-│CLAUDE.md│ │     │ │     │ │     │ │CLAUDE.md│ │     │
-│state.md │ │     │ │     │ │     │ │state.md │ │     │
-│inbox.md │ │     │ │     │ │     │ │inbox.md │ │     │
-└────┬────┘ └──┬──┘ └──┬──┘ └──┬──┘ └────┬────┘ └──┬──┘
-     │         │       │       │         │          │
-     └─────────┴───────┼───────┴─────────┴──────────┘
+     ┌─────────┬───────┼───────┬─────────┬──────────┬──────────┐
+     │         │       │       │         │          │          │
+  @cos_bot  @cto_bot  @vpe1  @vpe2  @devops   @mktg_bot  @cons_bot
+     │         │       │       │         │          │          │
+┌────┴────┐ ┌──┴──┐ ┌──┴──┐ ┌──┴──┐ ┌────┴────┐ ┌──┴──┐ ┌────┴────┐
+│  tmux   │ │tmux │ │tmux │ │tmux │ │  tmux   │ │tmux │ │  tmux   │
+│ session │ │sess.│ │sess.│ │sess.│ │ session │ │sess.│ │ session │
+│         │ │     │ │     │ │     │ │         │ │     │ │         │
+│ Claude  │ │Clau-│ │Clau-│ │Clau-│ │ Claude  │ │Clau-│ │ Claude  │
+│ Code    │ │de   │ │de   │ │de   │ │ Code    │ │de   │ │ Code    │
+│--channel│ │Code │ │Code │ │Code │ │--channel│ │Code │ │--channel│
+│         │ │     │ │     │ │     │ │         │ │     │ │         │
+│CLAUDE.md│ │     │ │     │ │     │ │CLAUDE.md│ │     │ │CLAUDE.md│
+│state.md │ │     │ │     │ │     │ │state.md │ │     │ │state.md │
+│inbox.md │ │     │ │     │ │     │ │inbox.md │ │     │ │inbox.md │
+└────┬────┘ └──┬──┘ └──┬──┘ └──┬──┘ └────┬────┘ └──┬──┘ └────┬────┘
+     │         │       │       │         │          │          │
+     └─────────┴───────┼───────┴─────────┴──────────┴──────────┘
                        │
               ┌────────┴────────┐
               │   Watchdog      │
@@ -344,6 +344,7 @@ For reference, here's what we actually run:
 | **VPE-2** (VP Engineering) | Code review, PRs, architecture for Project B | On-demand | 45 agent skills, Playwright, GitHub |
 | **DevOps** | Fleet management, bot creation/maintenance | On-demand | All bot configs, systemd, cron |
 | **Marketing** (Product Marketing) | Market research, content, thought leadership | Weekly research (Mon 6am), weekly use cases (Tue 6am) | Google Workspace, WebSearch |
+| **Consultant** (Sr. Consultant) | Client strategy, deliverables, engagement support | On-demand | Google Workspace, WebSearch |
 
 All bots share:
 - Isolated tmux sessions with separate sockets
